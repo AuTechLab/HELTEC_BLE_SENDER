@@ -346,7 +346,7 @@ void setup() {
     initLoRa();
     initBLE();
 
-    nextScanAt = millis() + SCAN_INTERVAL_MS;
+    nextScanAt = millis();
     oledUpdate();
 }
 
