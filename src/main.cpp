@@ -34,54 +34,7 @@
 #include <BLEAdvertisedDevice.h>
 #include <ArduinoJson.h>
 
-// ═══════════════════════════════════════════════
-//  User Configuration  ← Edit these
-// ═══════════════════════════════════════════════
-#define NODE_ID          "S01"
-#define LORA_FREQUENCY   923.0f   // MHz (AS923 TH/SEA). Must match receiver.
-#define SCAN_INTERVAL_MS 60000UL  // ms between scan-and-send cycles (1 min: allows multi-pkt TX + duty cycle)
-
-// ─── LoRa parameters (must match receiver) ────
-#define LORA_BW        125.0f
-#define LORA_SF        7
-#define LORA_CR        5
-#define LORA_TX_POWER  14
-#define LORA_PREAMBLE  8
-
-// ─── Heltec V3 SX1262 pins ────────────────────
-#define SX_NSS   8
-#define SX_DIO1  14
-#define SX_RST   12
-#define SX_BUSY  13
-#define SPI_SCK  9
-#define SPI_MISO 11
-#define SPI_MOSI 10
-
-// ─── Heltec V3 OLED (SSD1306 128×64 I2C) ─────
-#define VEXT_CTRL 36
-#define OLED_RST 21
-#define OLED_SCL 18
-#define OLED_SDA 17
-
-// ─── BLE ──────────────────────────────────────
-#define BLE_SCAN_SEC  30           // scan longer to capture more devices
-#define BLE_MAX_DEVS  300          // up to 300 BLE devices per cycle
-
-// ─── ACK ──────────────────────────────────────
-#define ACK_WAIT_MS  3000   // ms to wait for ACK reply after TX
-
-// ─── Binary packet format ─────────────────────
-// Byte  0    : 0xBE  (magic – identifies binary BLE packet)
-// Byte  1    : packet index (0-based, uint8)
-// Byte  2    : total packets in this burst (uint8)
-// Byte  3    : NODE_ID length (≤3)
-// Bytes 4-6  : NODE_ID zero-padded to 3 bytes
-// Byte  7    : device count in this packet (uint8)
-// Bytes 8+   : devices – 6-byte MAC (binary) + 1-byte RSSI (int8_t)
-#define LORA_MAX_PAYLOAD 255
-#define BIN_HEADER_LEN   8
-#define BYTES_PER_DEV    7    // 6 MAC + 1 RSSI
-#define DEVS_PER_PKT     ((LORA_MAX_PAYLOAD - BIN_HEADER_LEN) / BYTES_PER_DEV)  // 35
+#include "config.h"
 
 // ═══════════════════════════════════════════════
 //  Hardware objects
@@ -115,6 +68,7 @@ static BLEScan *bleScan = nullptr;
 static char     sLoRa[20]   = "Init";
 static char     sBLE[20]    = "---";
 static char     sLink[12]   = "---";
+static char     sRSSI[20]   = "---";   // RSSI of last ACK from receiver
 static unsigned long nextScanAt = 0;
 
 // ═══════════════════════════════════════════════
@@ -154,8 +108,8 @@ void oledUpdate() {
     snprintf(tmp, sizeof(tmp), "Link: %s", sLink);
     display.drawStr(0, 48, tmp);
 
-    // Configured scan interval
-    snprintf(tmp, sizeof(tmp), "Intv: %lus", (unsigned long)(SCAN_INTERVAL_MS / 1000UL));
+    // RSSI of last ACK from receiver
+    snprintf(tmp, sizeof(tmp), "RSSI: %s", sRSSI);
     display.drawStr(0, 62, tmp);
 
     display.sendBuffer();
@@ -240,6 +194,8 @@ bool waitAck() {
                 Serial.printf("[ACK] RX: %s\n", ackStr.c_str());
                 StaticJsonDocument<128> ack;
                 if (!deserializeJson(ack, ackStr) && ack["ack"] == 1) {
+                    float rssi = radio.getRSSI();
+                    snprintf(sRSSI, sizeof(sRSSI), "%.0fdBm", rssi);
                     found = true;
                     break;
                 }
