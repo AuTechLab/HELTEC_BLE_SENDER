@@ -11,7 +11,7 @@
 #define LORA_BW        125.0f
 #define LORA_SF        7
 #define LORA_CR        5
-#define LORA_TX_POWER  14
+#define LORA_TX_POWER  22
 #define LORA_PREAMBLE  8
 
 // ─── Heltec V3 SX1262 pins ────────────────────
