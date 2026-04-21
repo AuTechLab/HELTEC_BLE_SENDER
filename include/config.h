@@ -9,7 +9,7 @@
 
 // ─── LoRa parameters (must match receiver) ────
 #define LORA_BW        125.0f
-#define LORA_SF        7
+#define LORA_SF        12
 #define LORA_CR        5
 #define LORA_TX_POWER  22
 #define LORA_PREAMBLE  8
