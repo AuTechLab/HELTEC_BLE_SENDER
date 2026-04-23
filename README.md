@@ -54,7 +54,7 @@ LoRa TX ทีละ Packet → รอ ACK ภายใน 3,000 ms
 
 ## การตั้งค่า (User Configuration)
 
-แก้ไขค่าใน `src/main.cpp` ตรงส่วน **User Configuration**:
+แก้ไขค่าใน `include/config.h`:
 
 | ค่าคงที่ | ค่าเริ่มต้น | คำอธิบาย |
 |---------|-----------|---------|
@@ -64,7 +64,7 @@ LoRa TX ทีละ Packet → รอ ACK ภายใน 3,000 ms
 | `LORA_BW` | `125.0` kHz | Bandwidth (ต้องตรงกับ Receiver) |
 | `LORA_SF` | `7` | Spreading Factor (ต้องตรงกับ Receiver) |
 | `LORA_CR` | `5` | Coding Rate (ต้องตรงกับ Receiver) |
-| `LORA_TX_POWER` | `14` dBm | กำลังส่ง LoRa |
+| `LORA_TX_POWER` | `22` dBm | กำลังส่ง LoRa |
 | `BLE_SCAN_SEC` | `30` s | ระยะเวลา BLE scan ต่อรอบ |
 | `BLE_MAX_DEVS` | `300` | จำนวน BLE device สูงสุดที่เก็บได้ต่อรอบ |
 | `ACK_WAIT_MS` | `3000` ms | Timeout รอรับ ACK หลังจาก TX แต่ละ Packet |
@@ -82,13 +82,15 @@ Byte 2      : Total packets ในชุดนี้
 Byte 3      : ความยาว NODE_ID (≤ 3)
 Bytes 4–6   : NODE_ID (zero-padded ถึง 3 bytes)
 Byte 7      : จำนวน BLE device ใน packet นี้
-Bytes 8+    : ข้อมูล device ทีละ 7 bytes
+Bytes 8–9   : จำนวน BLE device ทั้งหมดในรอบ scan นี้ (uint16_t, little-endian)
+               └─ Receiver ใช้ค่านี้สร้าง "no": "<ลำดับ>/<ทั้งหมด>" ต่อ device ใน MQTT
+Bytes 10+   : ข้อมูล device ทีละ 7 bytes
                └─ 6 bytes MAC (binary)
                └─ 1 byte RSSI (int8_t)
 ```
 
 - Payload สูงสุด: **255 bytes**
-- BLE device ต่อ Packet: **35 เครื่อง** (floor((255 − 8) / 7))
+- BLE device ต่อ Packet: **35 เครื่อง** (floor((255 − 10) / 7))
 - 300 เครื่อง → ส่งสูงสุด **9 Packet** ต่อรอบ
 
 ---
@@ -111,8 +113,10 @@ Bytes 8+    : ข้อมูล device ทีละ 7 bytes
 LoRa: TX OK
 BLE : 42 found
 Link: ONLINE
-Intv: 60s
+RSSI: -85dBm
 ```
+
+> บรรทัดสุดท้าย `RSSI` คือ RSSI ของ ACK ที่ได้รับจาก Receiver
 
 ---
 
@@ -149,7 +153,8 @@ pio device monitor --baud 115200
 BLE_Send/
 ├── src/
 │   └── main.cpp          # โค้ดหลัก
-├── include/              # Header files (ว่าง)
+├── include/
+│   └── config.h          # User configuration (NODE_ID, LoRa params, BLE params)
 ├── lib/                  # Library เพิ่มเติม (ว่าง)
 ├── test/                 # Unit test (ว่าง)
 ├── platformio.ini        # PlatformIO config

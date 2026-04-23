@@ -43,8 +43,10 @@
 // Byte  3    : NODE_ID length (≤3)
 // Bytes 4-6  : NODE_ID zero-padded to 3 bytes
 // Byte  7    : device count in this packet (uint8)
-// Bytes 8+   : devices – 6-byte MAC (binary) + 1-byte RSSI (int8_t)
+// Bytes 8-9  : total devices in this scan cycle (uint16_t, little-endian)
+//              → receiver uses this to build "no": "<global_index>/<total>" per device
+// Bytes 10+  : devices – 6-byte MAC (binary) + 1-byte RSSI (int8_t)
 #define LORA_MAX_PAYLOAD 255
-#define BIN_HEADER_LEN   8
+#define BIN_HEADER_LEN   10
 #define BYTES_PER_DEV    7    // 6 MAC + 1 RSSI
 #define DEVS_PER_PKT     ((LORA_MAX_PAYLOAD - BIN_HEADER_LEN) / BYTES_PER_DEV)  // 35

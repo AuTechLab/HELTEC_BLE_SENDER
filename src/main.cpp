@@ -247,6 +247,8 @@ void buildAndSend() {
         memset(&buf[4], 0, 3);
         memcpy(&buf[4], NODE_ID, idLen);
         buf[7]  = (uint8_t)cnt;
+        buf[8]  = (uint8_t)(devCount & 0xFF);         // total devices LSB
+        buf[9]  = (uint8_t)((devCount >> 8) & 0xFF);  // total devices MSB
 
         int pos = BIN_HEADER_LEN;
         for (int i = startI; i < endI; i++) {
