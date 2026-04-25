@@ -8,11 +8,9 @@
 ## ภาพรวมการทำงาน
 
 ```
-[ทุก SCAN_INTERVAL_MS = 60 วินาที]
-  │
-  ▼
 BLE Active Scan (30 วินาที)
-  │  เก็บ MAC + RSSI ของอุปกรณ์ที่พบ (สูงสุด 300 เครื่อง)
+  │  เก็บ MAC (binary) + RSSI ของทุกอุปกรณ์ที่พบ (ไม่มี hard cap)
+  │  หยุดเก็บเมื่อ free heap < 8 KB เพื่อความปลอดภัย
   ▼
 แบ่งข้อมูลเป็น Packet ขนาด 35 เครื่อง/Packet (Binary format)
   │
@@ -22,6 +20,9 @@ LoRa TX ทีละ Packet → รอ ACK ภายใน 3,000 ms
   │  ถ้าไม่ได้ ACK → บันทึก NO ACK แล้วข้ามไป
   ▼
 อัปเดต OLED แสดงสถานะ
+  │
+  ▼
+[รอ SCAN_INTERVAL_MS = 60 วินาที หลังจากทำงานเสร็จ]
 ```
 
 ---
@@ -66,7 +67,6 @@ LoRa TX ทีละ Packet → รอ ACK ภายใน 3,000 ms
 | `LORA_CR` | `5` | Coding Rate (ต้องตรงกับ Receiver) |
 | `LORA_TX_POWER` | `22` dBm | กำลังส่ง LoRa |
 | `BLE_SCAN_SEC` | `30` s | ระยะเวลา BLE scan ต่อรอบ |
-| `BLE_MAX_DEVS` | `300` | จำนวน BLE device สูงสุดที่เก็บได้ต่อรอบ |
 | `ACK_WAIT_MS` | `3000` ms | Timeout รอรับ ACK หลังจาก TX แต่ละ Packet |
 
 ---
@@ -91,7 +91,8 @@ Bytes 10+   : ข้อมูล device ทีละ 7 bytes
 
 - Payload สูงสุด: **255 bytes**
 - BLE device ต่อ Packet: **35 เครื่อง** (floor((255 − 10) / 7))
-- 300 เครื่อง → ส่งสูงสุด **9 Packet** ต่อรอบ
+- `totalPkt` เป็น `uint8_t` → ส่งได้สูงสุด **255 × 35 = 8,925 เครื่อง** ต่อรอบ
+- ไม่มี hard cap ในการสแกน — `std::vector` ขยายตาม heap ที่ว่างอยู่ (รองรับ ~27,000+ เครื่อง)
 
 ---
 

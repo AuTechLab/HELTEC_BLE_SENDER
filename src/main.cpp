@@ -33,6 +33,7 @@
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
 #include <ArduinoJson.h>
+#include <vector>
 
 #include "config.h"
 
@@ -47,18 +48,20 @@ volatile bool ackFlag = false;
 IRAM_ATTR void onAckDone() { ackFlag = true; }
 
 // ─── BLE ──────────────────────────────────────
-struct BLEEntry { char mac[18]; int8_t rssi; };
-static BLEEntry devList[BLE_MAX_DEVS];
-static int      devCount = 0;
+// MAC stored as 6 raw bytes (MSB first, same order as string representation)
+struct BLEEntry { uint8_t mac[6]; int8_t rssi; };
+static std::vector<BLEEntry> devList;  // grows dynamically – no hard cap
 
 class ScanCB : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice d) override {
-        if (devCount < BLE_MAX_DEVS) {
-            strncpy(devList[devCount].mac, d.getAddress().toString().c_str(), 17);
-            devList[devCount].mac[17] = '\0';
-            devList[devCount].rssi    = static_cast<int8_t>(d.getRSSI());
-            devCount++;
-        }
+        // Guard: keep at least 8 KB heap free for BT stack and LoRa operations
+        if (ESP.getFreeHeap() < 8192) return;
+        BLEEntry e;
+        // getNative() returns bytes LSB-first; reverse to MSB-first for packet
+        const uint8_t* native = reinterpret_cast<const uint8_t*>(d.getAddress().getNative());
+        for (int j = 0; j < 6; j++) e.mac[j] = native[5 - j];
+        e.rssi = static_cast<int8_t>(d.getRSSI());
+        devList.push_back(e);
     }
 };
 static ScanCB   scanCB;
@@ -160,14 +163,14 @@ void initBLE() {
 //  BLE scan
 // ═══════════════════════════════════════════════
 void doScan() {
-    devCount = 0;
+    devList.clear();
     strncpy(sBLE, "Scanning...", sizeof(sBLE));
     oledUpdate();
     Serial.println("[BLE] Scanning...");
     bleScan->start(BLE_SCAN_SEC, false);
     bleScan->clearResults();
-    snprintf(sBLE, sizeof(sBLE), "%d found", devCount);
-    Serial.printf("[BLE] %d device(s) found\n", devCount);
+    snprintf(sBLE, sizeof(sBLE), "%d found", (int)devList.size());
+    Serial.printf("[BLE] %d device(s) found\n", (int)devList.size());
     oledUpdate();
 }
 
@@ -214,29 +217,25 @@ bool waitAck() {
 
 // ═══════════════════════════════════════════════
 //  Build binary multi-packet burst → LoRa TX → ACK per packet
-//  Binary format: 12-byte header + 7 bytes/device (6 MAC + 1 RSSI)
-//  Capacity: 34 devices/packet → 300 devices = 9 packets
+//  Binary format: 10-byte header + 7 bytes/device (6 MAC + 1 RSSI)
+//  35 devices/packet; total packets capped at 255 (uint8) → ~8,925 devices
 // ═══════════════════════════════════════════════
-static bool parseMac(const char* str, uint8_t out[6]) {
-    return sscanf(str,
-        "%2hhx:%2hhx:%2hhx:%2hhx:%2hhx:%2hhx",
-        &out[0], &out[1], &out[2], &out[3], &out[4], &out[5]) == 6;
-}
-
 void buildAndSend() {
-    if (devCount == 0) return;
+    if (devList.empty()) return;
 
-    int      totalPkt = (devCount + DEVS_PER_PKT - 1) / DEVS_PER_PKT;
+    int      total    = (int)devList.size();
+    int      totalPkt = (total + DEVS_PER_PKT - 1) / DEVS_PER_PKT;
+    if (totalPkt > 255) totalPkt = 255;  // uint8_t field limit
     int      okPkt    = 0;
     uint8_t  idLen    = (uint8_t)strlen(NODE_ID);
     if (idLen > 3) idLen = 3;
 
-    Serial.printf("[TX] Burst: %d devs → %d packets\n", devCount, totalPkt);
+    Serial.printf("[TX] Burst: %d devs → %d packets\n", total, totalPkt);
 
     for (int pkt = 0; pkt < totalPkt; pkt++) {
         int startI = pkt * DEVS_PER_PKT;
         int endI   = startI + DEVS_PER_PKT;
-        if (endI > devCount) endI = devCount;
+        if (endI > total) endI = total;
         int cnt    = endI - startI;
 
         uint8_t buf[LORA_MAX_PAYLOAD];
@@ -247,14 +246,12 @@ void buildAndSend() {
         memset(&buf[4], 0, 3);
         memcpy(&buf[4], NODE_ID, idLen);
         buf[7]  = (uint8_t)cnt;
-        buf[8]  = (uint8_t)(devCount & 0xFF);         // total devices LSB
-        buf[9]  = (uint8_t)((devCount >> 8) & 0xFF);  // total devices MSB
+        buf[8]  = (uint8_t)(total & 0xFF);         // total devices LSB
+        buf[9]  = (uint8_t)((total >> 8) & 0xFF);  // total devices MSB
 
         int pos = BIN_HEADER_LEN;
         for (int i = startI; i < endI; i++) {
-            uint8_t mac[6] = {0};
-            parseMac(devList[i].mac, mac);
-            memcpy(&buf[pos], mac, 6);
+            memcpy(&buf[pos], devList[i].mac, 6);          // already binary MSB-first
             buf[pos + 6] = (uint8_t)(int8_t)devList[i].rssi;
             pos += BYTES_PER_DEV;
         }
@@ -310,15 +307,16 @@ void setup() {
 
 void loop() {
     if (millis() >= nextScanAt) {
-        nextScanAt = millis() + SCAN_INTERVAL_MS;
         doScan();
-        if (devCount > 0) {
+        if (!devList.empty()) {
             buildAndSend();
         } else {
             strncpy(sLoRa, "No BLE devs", sizeof(sLoRa));
             Serial.println("[INFO] No BLE devices – skipping TX");
             oledUpdate();
         }
+        // Start interval AFTER work finishes, not before
+        nextScanAt = millis() + SCAN_INTERVAL_MS;
     }
 
     // Refresh countdown every second

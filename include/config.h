@@ -31,7 +31,7 @@
 
 // ─── BLE ──────────────────────────────────────
 #define BLE_SCAN_SEC  30    // active scan duration (seconds)
-#define BLE_MAX_DEVS  300   // maximum BLE devices collected per cycle
+// BLE_MAX_DEVS removed – std::vector grows to available heap (~28 k devices max)
 
 // ─── ACK ──────────────────────────────────────
 #define ACK_WAIT_MS  3000   // ms to wait for ACK reply after TX
