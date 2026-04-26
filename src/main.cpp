@@ -220,11 +220,12 @@ bool waitAck() {
 //  Binary format: 10-byte header + 7 bytes/device (6 MAC + 1 RSSI)
 //  35 devices/packet; total packets capped at 255 (uint8) → ~8,925 devices
 // ═══════════════════════════════════════════════
-void buildAndSend() {
+void buildAndSend(int reportedTotal = -1) {
     if (devList.empty()) return;
 
-    int      total    = (int)devList.size();
-    int      totalPkt = (total + DEVS_PER_PKT - 1) / DEVS_PER_PKT;
+    int      total      = (int)devList.size();
+    int      hdrTotal   = (reportedTotal < 0) ? total : reportedTotal;  // value written to packet header
+    int      totalPkt   = (total + DEVS_PER_PKT - 1) / DEVS_PER_PKT;
     if (totalPkt > 255) totalPkt = 255;  // uint8_t field limit
     int      okPkt    = 0;
     uint8_t  idLen    = (uint8_t)strlen(NODE_ID);
@@ -246,8 +247,8 @@ void buildAndSend() {
         memset(&buf[4], 0, 3);
         memcpy(&buf[4], NODE_ID, idLen);
         buf[7]  = (uint8_t)cnt;
-        buf[8]  = (uint8_t)(total & 0xFF);         // total devices LSB
-        buf[9]  = (uint8_t)((total >> 8) & 0xFF);  // total devices MSB
+        buf[8]  = (uint8_t)(hdrTotal & 0xFF);         // total devices LSB
+        buf[9]  = (uint8_t)((hdrTotal >> 8) & 0xFF);  // total devices MSB
 
         int pos = BIN_HEADER_LEN;
         for (int i = startI; i < endI; i++) {
@@ -311,8 +312,16 @@ void loop() {
         if (!devList.empty()) {
             buildAndSend();
         } else {
-            strncpy(sLoRa, "No BLE devs", sizeof(sLoRa));
-            Serial.println("[INFO] No BLE devices – skipping TX");
+            // No BLE devices found – send own MAC as heartbeat (RSSI=0, no=0/0)
+            BLEEntry self;
+            const uint8_t* native = reinterpret_cast<const uint8_t*>(
+                BLEDevice::getAddress().getNative());
+            for (int j = 0; j < 6; j++) self.mac[j] = native[5 - j];
+            self.rssi = 0;
+            devList.push_back(self);
+            Serial.println("[INFO] No BLE devices – sending own MAC as heartbeat");
+            buildAndSend(0);  // reportedTotal=0 → receiver sees no=0/0
+            strncpy(sLoRa, "Heartbeat", sizeof(sLoRa));
             oledUpdate();
         }
         // Start interval AFTER work finishes, not before
